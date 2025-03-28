@@ -13,6 +13,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.SQLException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -180,5 +183,25 @@ public class QuestionService {
         questionDAO.save(question);
         
         return true;
+    }
+
+    public List<Question> findQuestionsByCategory(String category) throws SQLException {
+        String query = "SELECT * FROM questions WHERE category = ?";
+        List<Question> questions = new ArrayList<>();
+        try (Connection connection = DatabaseConnection.getSharedConnection();
+             PreparedStatement statement = connection.prepareStatement(query)) {
+            statement.setString(1, category);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    // Mapping der ResultSet-Daten zu Question-Objekten
+                    Question question = new Question();
+                    question.setId(resultSet.getInt("id"));
+                    question.setName(resultSet.getString("name"));
+                    // ...weitere Felder...
+                    questions.add(question);
+                }
+            }
+        }
+        return questions;
     }
 }

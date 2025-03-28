@@ -121,6 +121,10 @@ public class MainFrame extends JFrame {
         fileMenu.addSeparator();
         fileMenu.add(exitItem);
         
+        JMenuItem categoryItem = new JMenuItem("Kategorien anzeigen");
+        categoryItem.addActionListener(e -> showCategoriesDialog());
+        fileMenu.add(categoryItem);
+        
         // Help menu
         JMenu helpMenu = new JMenu("Hilfe");
         
@@ -190,6 +194,23 @@ public class MainFrame extends JFrame {
             logger.info("Application shutting down");
             dispose();
             System.exit(0);
+        }
+    }
+    
+    private void showCategoriesDialog() {
+        try {
+            CategoryDAO categoryDAO = new CategoryDAO();
+            List<String> categories = categoryDAO.findAllCategories();
+            JOptionPane.showMessageDialog(this, 
+                "Kategorien:\n" + String.join("\n", categories), 
+                "Kategorien", 
+                JOptionPane.INFORMATION_MESSAGE);
+        } catch (SQLException ex) {
+            logger.error("Error loading categories", ex);
+            JOptionPane.showMessageDialog(this, 
+                "Fehler beim Laden der Kategorien: " + ex.getMessage(), 
+                "Fehler", 
+                JOptionPane.ERROR_MESSAGE);
         }
     }
     
@@ -290,7 +311,11 @@ public class MainFrame extends JFrame {
             try {
                 questions = questionService.findAll();
                 updateQuestionTable();
-                statusLabel.setText("Aufgaben geladen: " + questions.size());
+                if (statusLabel != null) {
+                    statusLabel.setText("Aufgaben geladen: " + questions.size());
+                } else {
+                    System.err.println("statusLabel is null");
+                }
             } catch (SQLException ex) {
                 logger.error("Error loading questions", ex);
                 JOptionPane.showMessageDialog(this,
@@ -316,11 +341,62 @@ public class MainFrame extends JFrame {
         }
         
         private void showAddQuestionDialog() {
-            // Implementation für Dialog zum Hinzufügen einer neuen Aufgabe
-            JOptionPane.showMessageDialog(this,
-                "Dialog zum Hinzufügen einer neuen Aufgabe wird implementiert.",
-                "Information",
-                JOptionPane.INFORMATION_MESSAGE);
+            JTextField nameField = new JTextField();
+            JTextField questionTextField = new JTextField();
+            JComboBox<Module> moduleComboBox = new JComboBox<>();
+            JComboBox<BloomLevel> bloomLevelComboBox = new JComboBox<>(BloomLevel.values());
+            JSpinner estimatedTimeSpinner = new JSpinner(new SpinnerNumberModel(10, 1, 120, 1));
+
+            // Lade Module in das ComboBox
+            try {
+                List<Module> modules = moduleService.findAll();
+                if (modules.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "Keine Module verfügbar. Bitte erstellen Sie zuerst ein Modul.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                for (Module module : modules) {
+                    moduleComboBox.addItem(module);
+                }
+            } catch (SQLException e) {
+                logger.error("Error loading modules", e);
+                JOptionPane.showMessageDialog(this, "Fehler beim Laden der Module.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            JPanel panel = new JPanel(new GridLayout(5, 2));
+            panel.add(new JLabel("Name:"));
+            panel.add(nameField);
+            panel.add(new JLabel("Fragetext:"));
+            panel.add(questionTextField);
+            panel.add(new JLabel("Modul:"));
+            panel.add(moduleComboBox);
+            panel.add(new JLabel("Bloom Level:"));
+            panel.add(bloomLevelComboBox);
+            panel.add(new JLabel("Geschätzte Zeit (Min):"));
+            panel.add(estimatedTimeSpinner);
+
+            int result = JOptionPane.showConfirmDialog(this, panel, "Neue Aufgabe hinzufügen", JOptionPane.OK_CANCEL_OPTION);
+            if (result == JOptionPane.OK_OPTION) {
+                try {
+                    String name = nameField.getText().trim();
+                    String questionText = questionTextField.getText().trim();
+                    Module module = (Module) moduleComboBox.getSelectedItem();
+                    BloomLevel bloomLevel = (BloomLevel) bloomLevelComboBox.getSelectedItem();
+                    int estimatedTime = (int) estimatedTimeSpinner.getValue();
+
+                    if (name.isEmpty() || questionText.isEmpty() || module == null || bloomLevel == null) {
+                        JOptionPane.showMessageDialog(this, "Bitte füllen Sie alle Felder aus.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+
+                    questionService.createOpenQuestion(name, questionText, estimatedTime, module, bloomLevel, null);
+                    loadQuestions();
+                    JOptionPane.showMessageDialog(this, "Aufgabe erfolgreich hinzugefügt.", "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+                } catch (SQLException e) {
+                    logger.error("Error adding question", e);
+                    JOptionPane.showMessageDialog(this, "Fehler beim Hinzufügen der Aufgabe.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                }
+            }
         }
         
         private void showEditQuestionDialog(Question question) {
@@ -341,7 +417,11 @@ public class MainFrame extends JFrame {
                 try {
                     questionService.delete(question.getId());
                     loadQuestions();
-                    statusLabel.setText("Aufgabe gelöscht: " + question.getName());
+                    if (statusLabel != null) {
+                        statusLabel.setText("Aufgabe gelöscht: " + question.getName());
+                    } else {
+                        System.err.println("statusLabel is null");
+                    }
                 } catch (SQLException ex) {
                     logger.error("Error deleting question", ex);
                     JOptionPane.showMessageDialog(this,
@@ -428,7 +508,11 @@ public class MainFrame extends JFrame {
             try {
                 modules = moduleService.findAll();
                 updateModuleTable();
-                statusLabel.setText("Module geladen: " + modules.size());
+                if (statusLabel != null) {
+                    statusLabel.setText("Module geladen: " + modules.size());
+                } else {
+                    System.err.println("statusLabel is null");
+                }
             } catch (SQLException ex) {
                 logger.error("Error loading modules", ex);
                 JOptionPane.showMessageDialog(this,
@@ -452,11 +536,38 @@ public class MainFrame extends JFrame {
         }
         
         private void showAddModuleDialog() {
-            // Implementation für Dialog zum Hinzufügen eines neuen Moduls
-            JOptionPane.showMessageDialog(this,
-                "Dialog zum Hinzufügen eines neuen Moduls wird implementiert.",
-                "Information",
-                JOptionPane.INFORMATION_MESSAGE);
+            JTextField nameField = new JTextField();
+            JTextField descriptionField = new JTextField();
+
+            JPanel panel = new JPanel(new GridLayout(2, 2));
+            panel.add(new JLabel("Name:"));
+            panel.add(nameField);
+            panel.add(new JLabel("Beschreibung:"));
+            panel.add(descriptionField);
+
+            int result = JOptionPane.showConfirmDialog(this, panel, "Neues Modul hinzufügen", JOptionPane.OK_CANCEL_OPTION);
+            if (result == JOptionPane.OK_OPTION) {
+                try {
+                    String name = nameField.getText().trim();
+                    String description = descriptionField.getText().trim();
+
+                    if (name.isEmpty() || description.isEmpty()) {
+                        JOptionPane.showMessageDialog(this, "Bitte füllen Sie alle Felder aus.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+
+                    Module module = new Module();
+                    module.setName(name);
+                    module.setDescription(description);
+
+                    moduleService.save(module);
+                    loadModules();
+                    JOptionPane.showMessageDialog(this, "Modul erfolgreich hinzugefügt.", "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+                } catch (SQLException e) {
+                    logger.error("Error adding module", e);
+                    JOptionPane.showMessageDialog(this, "Fehler beim Hinzufügen des Moduls.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                }
+            }
         }
         
         private void showEditModuleDialog(Module module) {
@@ -477,7 +588,11 @@ public class MainFrame extends JFrame {
                 try {
                     moduleService.delete(module.getId());
                     loadModules();
-                    statusLabel.setText("Modul gelöscht: " + module.getName());
+                    if (statusLabel != null) {
+                        statusLabel.setText("Modul gelöscht: " + module.getName());
+                    } else {
+                        System.err.println("statusLabel is null");
+                    }
                 } catch (SQLException ex) {
                     logger.error("Error deleting module", ex);
                     JOptionPane.showMessageDialog(this,
@@ -741,10 +856,18 @@ public class MainFrame extends JFrame {
                     generatedExam = exam;
                     String preview = examService.exportExam(exam);
                     previewArea.setText(preview);
-                    statusLabel.setText("Klausur erfolgreich generiert: " + exam.getQuestions().size() + " Aufgaben");
+                    if (statusLabel != null) {
+                        statusLabel.setText("Klausur erfolgreich generiert: " + exam.getQuestions().size() + " Aufgaben");
+                    } else {
+                        System.err.println("statusLabel is null");
+                    }
                 } else {
                     previewArea.setText("Keine passenden Aufgaben gefunden. Bitte ändern Sie die Auswahlkriterien.");
-                    statusLabel.setText("Keine passenden Aufgaben gefunden");
+                    if (statusLabel != null) {
+                        statusLabel.setText("Keine passenden Aufgaben gefunden");
+                    } else {
+                        System.err.println("statusLabel is null");
+                    }
                 }
             } catch (Exception ex) {
                 logger.error("Error generating exam", ex);
@@ -770,7 +893,11 @@ public class MainFrame extends JFrame {
                     "Die Klausur wurde erfolgreich gespeichert.",
                     "Information",
                     JOptionPane.INFORMATION_MESSAGE);
-                statusLabel.setText("Klausur gespeichert: " + generatedExam.getName());
+                if (statusLabel != null) {
+                    statusLabel.setText("Klausur gespeichert: " + generatedExam.getName());
+                } else {
+                    System.err.println("statusLabel is null");
+                }
             } catch (SQLException ex) {
                 logger.error("Error saving exam", ex);
                 JOptionPane.showMessageDialog(this,
@@ -905,7 +1032,11 @@ public class MainFrame extends JFrame {
             try {
                 exams = examService.findAll();
                 updateExamTable();
-                statusLabel.setText("Klausuren geladen: " + exams.size());
+                if (statusLabel != null) {
+                    statusLabel.setText("Klausuren geladen: " + exams.size());
+                } else {
+                    System.err.println("statusLabel is null");
+                }
             } catch (SQLException ex) {
                 logger.error("Error loading exams", ex);
                 JOptionPane.showMessageDialog(this,
@@ -953,7 +1084,11 @@ public class MainFrame extends JFrame {
                 try {
                     examService.delete(exam.getId());
                     loadExams();
-                    statusLabel.setText("Klausur gelöscht: " + exam.getName());
+                    if (statusLabel != null) {
+                        statusLabel.setText("Klausur gelöscht: " + exam.getName());
+                    } else {
+                        System.err.println("statusLabel is null");
+                    }
                 } catch (SQLException ex) {
                     logger.error("Error deleting exam", ex);
                     JOptionPane.showMessageDialog(this,
