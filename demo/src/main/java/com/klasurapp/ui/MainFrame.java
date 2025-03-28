@@ -6,6 +6,7 @@ import com.klasurapp.model.enums.QuestionFormat;
 import com.klasurapp.model.Module;
 import com.klasurapp.model.Question;
 import com.klasurapp.model.Exam;
+import com.klasurapp.model.AnswerOption;
 import com.klasurapp.service.ExamService;
 import com.klasurapp.service.ModuleService;
 import com.klasurapp.service.QuestionService;
@@ -23,6 +24,11 @@ import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
 
 public class MainFrame extends JFrame {
     private static final Logger logger = LoggerFactory.getLogger(MainFrame.class);
@@ -170,11 +176,57 @@ public class MainFrame extends JFrame {
         logger.info("Print action triggered");
         int tabIndex = tabbedPane.getSelectedIndex();
         String tabTitle = tabbedPane.getTitleAt(tabIndex);
-        
-        JOptionPane.showMessageDialog(this, 
-            "Drucken von '" + tabTitle + "' noch nicht implementiert.", 
-            "Information", 
-            JOptionPane.INFORMATION_MESSAGE);
+
+        try {
+            if (tabIndex == 0) { // Aufgaben-Tab
+                questionPanel.printTableContent();
+            } else if (tabIndex == 1) { // Module-Tab
+                modulePanel.printTableContent();
+            } else if (tabIndex == 2) { // Klausur erstellen-Tab
+                examGeneratorPanel.printPreviewContent();
+            } else if (tabIndex == 3) { // Klausuren ansehen-Tab
+                examViewerPanel.printPreviewContent();
+            } else {
+                JOptionPane.showMessageDialog(this, 
+                    "Drucken für diesen Tab nicht implementiert.", 
+                    "Information", 
+                    JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (Exception ex) {
+            logger.error("Error during printing", ex);
+            JOptionPane.showMessageDialog(this, 
+                "Fehler beim Drucken: " + ex.getMessage(), 
+                "Fehler", 
+                JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    // Hilfsmethode zum Drucken in eine PDF-Datei
+    private void printToPDF(String content, String fileName) {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+
+            try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+                contentStream.setFont(PDType1Font.HELVETICA, 12);
+                contentStream.beginText();
+                contentStream.setLeading(14.5f);
+                contentStream.newLineAtOffset(50, 750);
+
+                for (String line : content.split("\\n")) {
+                    contentStream.showText(line);
+                    contentStream.newLine();
+                }
+
+                contentStream.endText();
+            }
+
+            document.save(fileName);
+            JOptionPane.showMessageDialog(this, "PDF erfolgreich erstellt: " + fileName, "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception e) {
+            logger.error("Fehler beim Erstellen des PDFs", e);
+            JOptionPane.showMessageDialog(this, "Fehler beim Erstellen des PDFs: " + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
     }
     
     private void showAboutDialog() {
@@ -263,9 +315,32 @@ public class MainFrame extends JFrame {
                 }
             });
             
+            // Hinzufügen einer Schaltfläche zum Hinzufügen von Antwortoptionen
+            JButton addAnswerButton = new JButton("Antwort hinzufügen");
+            addAnswerButton.addActionListener(e -> {
+                int selectedRow = questionsTable.getSelectedRow();
+                if (selectedRow >= 0) {
+                    Question question = questions.get(selectedRow);
+                    if (question.getQuestionFormat() == QuestionFormat.CLOSED) {
+                        showAddAnswerDialog(question);
+                    } else {
+                        JOptionPane.showMessageDialog(this,
+                            "Antworten können nur zu geschlossenen Fragen hinzugefügt werden.",
+                            "Information",
+                            JOptionPane.INFORMATION_MESSAGE);
+                    }
+                } else {
+                    JOptionPane.showMessageDialog(this,
+                        "Bitte wählen Sie eine Frage aus der Tabelle.",
+                        "Information",
+                        JOptionPane.INFORMATION_MESSAGE);
+                }
+            });
+            
             toolbar.add(addButton);
             toolbar.add(editButton);
             toolbar.add(deleteButton);
+            toolbar.add(addAnswerButton);
             
             add(toolbar, BorderLayout.NORTH);
             
@@ -346,6 +421,8 @@ public class MainFrame extends JFrame {
             JComboBox<Module> moduleComboBox = new JComboBox<>();
             JComboBox<BloomLevel> bloomLevelComboBox = new JComboBox<>(BloomLevel.values());
             JSpinner estimatedTimeSpinner = new JSpinner(new SpinnerNumberModel(10, 1, 120, 1));
+            JComboBox<QuestionFormat> formatComboBox = new JComboBox<>(QuestionFormat.values());
+            JComboBox<ClosedQuestionType> closedTypeComboBox = new JComboBox<>(ClosedQuestionType.values());
 
             // Lade Module in das ComboBox
             try {
@@ -357,6 +434,91 @@ public class MainFrame extends JFrame {
                 for (Module module : modules) {
                     moduleComboBox.addItem(module);
                 }
+            } catch (SQLException e) {
+                logger.error("Error loading modules", e);
+                JOptionPane.showMessageDialog(this, "Fehler beim Laden der Module.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            // Panel für geschlossene Fragenoptionen, das anfangs versteckt ist
+            JPanel closedOptionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            closedOptionsPanel.add(new JLabel("Typ:"));
+            closedOptionsPanel.add(closedTypeComboBox);
+            closedOptionsPanel.setVisible(false);
+
+            // Listener für FormatComboBox, der das closedOptionsPanel anzeigt oder versteckt
+            formatComboBox.addActionListener(e -> {
+                QuestionFormat selectedFormat = (QuestionFormat) formatComboBox.getSelectedItem();
+                closedOptionsPanel.setVisible(selectedFormat == QuestionFormat.CLOSED);
+            });
+
+            JPanel panel = new JPanel();
+            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+
+            // Basisfelder in einem GridLayout
+            JPanel basePanel = new JPanel(new GridLayout(6, 2, 5, 5));
+            basePanel.add(new JLabel("Name:"));
+            basePanel.add(nameField);
+            basePanel.add(new JLabel("Fragetext:"));
+            basePanel.add(questionTextField);
+            basePanel.add(new JLabel("Modul:"));
+            basePanel.add(moduleComboBox);
+            basePanel.add(new JLabel("Bloom Level:"));
+            basePanel.add(bloomLevelComboBox);
+            basePanel.add(new JLabel("Format:"));
+            basePanel.add(formatComboBox);
+            basePanel.add(new JLabel("Geschätzte Zeit (Min):"));
+            basePanel.add(estimatedTimeSpinner);
+
+            panel.add(basePanel);
+            panel.add(Box.createVerticalStrut(10));
+            panel.add(closedOptionsPanel);
+
+            int result = JOptionPane.showConfirmDialog(this, panel, "Neue Aufgabe hinzufügen", JOptionPane.OK_CANCEL_OPTION);
+            if (result == JOptionPane.OK_OPTION) {
+                try {
+                    String name = nameField.getText().trim();
+                    String questionText = questionTextField.getText().trim();
+                    Module module = (Module) moduleComboBox.getSelectedItem();
+                    BloomLevel bloomLevel = (BloomLevel) bloomLevelComboBox.getSelectedItem();
+                    int estimatedTime = (int) estimatedTimeSpinner.getValue();
+
+                    if (name.isEmpty() || questionText.isEmpty() || module == null || bloomLevel == null) {
+                        JOptionPane.showMessageDialog(this, "Bitte füllen Sie alle Felder aus.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+
+                    if (formatComboBox.getSelectedItem() == QuestionFormat.OPEN) {
+                        // Offene Frage erstellen
+                        questionService.createOpenQuestion(name, questionText, estimatedTime, module, bloomLevel, null);
+                    } else {
+                        // Geschlossene Frage erstellen
+                        ClosedQuestionType closedType = (ClosedQuestionType) closedTypeComboBox.getSelectedItem();
+                        questionService.createClosedQuestion(name, questionText, estimatedTime, module, bloomLevel, closedType, new ArrayList<>());
+                    }
+                    
+                    loadQuestions();
+                    JOptionPane.showMessageDialog(this, "Aufgabe erfolgreich hinzugefügt.", "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+                } catch (SQLException e) {
+                    logger.error("Error adding question", e);
+                    JOptionPane.showMessageDialog(this, "Fehler beim Hinzufügen der Aufgabe: " + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }
+        
+        private void showEditQuestionDialog(Question question) {
+            JTextField nameField = new JTextField(question.getName());
+            JTextField questionTextField = new JTextField(question.getQuestionText());
+            JComboBox<Module> moduleComboBox = new JComboBox<>();
+            JComboBox<BloomLevel> bloomLevelComboBox = new JComboBox<>(BloomLevel.values());
+            JSpinner estimatedTimeSpinner = new JSpinner(new SpinnerNumberModel(question.getEstimatedTimeMinutes(), 1, 120, 1));
+
+            try {
+                List<Module> modules = moduleService.findAll();
+                for (Module module : modules) {
+                    moduleComboBox.addItem(module);
+                }
+                moduleComboBox.setSelectedItem(question.getModule());
             } catch (SQLException e) {
                 logger.error("Error loading modules", e);
                 JOptionPane.showMessageDialog(this, "Fehler beim Laden der Module.", "Fehler", JOptionPane.ERROR_MESSAGE);
@@ -375,7 +537,7 @@ public class MainFrame extends JFrame {
             panel.add(new JLabel("Geschätzte Zeit (Min):"));
             panel.add(estimatedTimeSpinner);
 
-            int result = JOptionPane.showConfirmDialog(this, panel, "Neue Aufgabe hinzufügen", JOptionPane.OK_CANCEL_OPTION);
+            int result = JOptionPane.showConfirmDialog(this, panel, "Aufgabe bearbeiten", JOptionPane.OK_CANCEL_OPTION);
             if (result == JOptionPane.OK_OPTION) {
                 try {
                     String name = nameField.getText().trim();
@@ -389,22 +551,20 @@ public class MainFrame extends JFrame {
                         return;
                     }
 
-                    questionService.createOpenQuestion(name, questionText, estimatedTime, module, bloomLevel, null);
+                    question.setName(name);
+                    question.setQuestionText(questionText);
+                    question.setModule(module);
+                    question.setBloomLevel(bloomLevel);
+                    question.setEstimatedTimeMinutes(estimatedTime);
+
+                    questionService.updateQuestion(question);
                     loadQuestions();
-                    JOptionPane.showMessageDialog(this, "Aufgabe erfolgreich hinzugefügt.", "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "Aufgabe erfolgreich bearbeitet.", "Erfolg", JOptionPane.INFORMATION_MESSAGE);
                 } catch (SQLException e) {
-                    logger.error("Error adding question", e);
-                    JOptionPane.showMessageDialog(this, "Fehler beim Hinzufügen der Aufgabe.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                    logger.error("Error updating question", e);
+                    JOptionPane.showMessageDialog(this, "Fehler beim Bearbeiten der Aufgabe: " + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
                 }
             }
-        }
-        
-        private void showEditQuestionDialog(Question question) {
-            // Implementation für Dialog zum Bearbeiten einer Aufgabe
-            JOptionPane.showMessageDialog(this,
-                "Dialog zum Bearbeiten einer Aufgabe wird implementiert.",
-                "Information",
-                JOptionPane.INFORMATION_MESSAGE);
         }
         
         private void deleteQuestion(Question question) {
@@ -429,6 +589,103 @@ public class MainFrame extends JFrame {
                         "Fehler",
                         JOptionPane.ERROR_MESSAGE);
                 }
+            }
+        }
+        
+        // Methode zum Anzeigen des Dialogs zum Hinzufügen von Antwortoptionen
+        private void showAddAnswerDialog(Question question) {
+            JTextField optionTextField = new JTextField();
+            JCheckBox isCorrectCheckBox = new JCheckBox("Korrekt");
+            JSpinner orderSpinner = new JSpinner(new SpinnerNumberModel(1, 1, 100, 1));
+
+            JPanel panel = new JPanel(new GridLayout(3, 2));
+            panel.add(new JLabel("Antworttext:"));
+            panel.add(optionTextField);
+            panel.add(new JLabel("Korrekt:"));
+            panel.add(isCorrectCheckBox);
+            panel.add(new JLabel("Reihenfolge:"));
+            panel.add(orderSpinner);
+
+            int result = JOptionPane.showConfirmDialog(this, panel, "Antwort hinzufügen", JOptionPane.OK_CANCEL_OPTION);
+            if (result == JOptionPane.OK_OPTION) {
+                try {
+                    String optionText = optionTextField.getText().trim();
+                    boolean isCorrect = isCorrectCheckBox.isSelected();
+                    int order = (int) orderSpinner.getValue();
+
+                    if (optionText.isEmpty()) {
+                        JOptionPane.showMessageDialog(this, "Bitte geben Sie einen Antworttext ein.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+
+                    questionService.addAnswerOption(question, optionText, isCorrect, order);
+                    loadQuestions();
+                    JOptionPane.showMessageDialog(this, "Antwort erfolgreich hinzugefügt.", "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+                } catch (SQLException e) {
+                    logger.error("Error adding answer option", e);
+                    JOptionPane.showMessageDialog(this, "Fehler beim Hinzufügen der Antwort.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }
+
+        // Methode zum Drucken der Fragenliste
+        public void printQuestions() {
+            try {
+                StringBuilder content = new StringBuilder("Aufgaben:\n\n");
+                for (Question question : questions) {
+                    content.append(question.getName()).append(" - ").append(question.getQuestionText()).append("\n");
+                }
+                printToPDF(content.toString(), "Aufgaben.pdf");
+            } catch (Exception ex) {
+                logger.error("Error printing questions", ex);
+                JOptionPane.showMessageDialog(this, "Fehler beim Drucken der Aufgaben: " + ex.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        // Methode zum Drucken des Panels
+        public void printPanelContent() {
+            printQuestions();
+        }
+
+        // In der Klasse QuestionPanel:
+        public void printTableContent() {
+            try (PDDocument document = new PDDocument()) {
+                PDPage page = new PDPage();
+                document.addPage(page);
+
+                try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+                    contentStream.setFont(PDType1Font.HELVETICA, 12);
+                    contentStream.beginText();
+                    contentStream.setLeading(14.5f);
+                    contentStream.newLineAtOffset(50, 750);
+
+                    contentStream.showText("Aufgabenliste:");
+                    contentStream.newLine();
+                    contentStream.newLine();
+
+                    for (Question question : questions) {
+                        contentStream.showText("Name: " + question.getName());
+                        contentStream.newLine();
+                        contentStream.showText("Fragetext: " + question.getQuestionText());
+                        contentStream.newLine();
+                        contentStream.showText("Modul: " + (question.getModule() != null ? question.getModule().getName() : "-"));
+                        contentStream.newLine();
+                        contentStream.showText("Bloom Level: " + question.getBloomLevel().getName());
+                        contentStream.newLine();
+                        contentStream.showText("Format: " + question.getQuestionFormat().getDisplayName());
+                        contentStream.newLine();
+                        contentStream.newLine();
+                    }
+
+                    contentStream.endText();
+                }
+
+                String fileName = "Aufgabenliste.pdf";
+                document.save(fileName);
+                JOptionPane.showMessageDialog(this, "PDF erfolgreich erstellt: " + fileName, "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+            } catch (Exception e) {
+                logger.error("Fehler beim Erstellen des PDFs", e);
+                JOptionPane.showMessageDialog(this, "Fehler beim Erstellen des PDFs: " + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
             }
         }
     }
@@ -600,6 +857,61 @@ public class MainFrame extends JFrame {
                         "Fehler",
                         JOptionPane.ERROR_MESSAGE);
                 }
+            }
+        }
+
+        // Methode zum Drucken der Modulliste
+        public void printModules() {
+            try {
+                StringBuilder content = new StringBuilder("Module:\n\n");
+                for (Module module : modules) {
+                    content.append(module.getName()).append(" - ").append(module.getDescription()).append("\n");
+                }
+                printToPDF(content.toString(), "Module.pdf");
+            } catch (Exception ex) {
+                logger.error("Error printing modules", ex);
+                JOptionPane.showMessageDialog(this, "Fehler beim Drucken der Module: " + ex.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        // Methode zum Drucken des Panels
+        public void printPanelContent() {
+            printModules();
+        }
+
+        // In der Klasse ModulePanel:
+        public void printTableContent() {
+            try (PDDocument document = new PDDocument()) {
+                PDPage page = new PDPage();
+                document.addPage(page);
+
+                try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+                    contentStream.setFont(PDType1Font.HELVETICA, 12);
+                    contentStream.beginText();
+                    contentStream.setLeading(14.5f);
+                    contentStream.newLineAtOffset(50, 750);
+
+                    contentStream.showText("Modulliste:");
+                    contentStream.newLine();
+                    contentStream.newLine();
+
+                    for (Module module : modules) {
+                        contentStream.showText("Name: " + module.getName());
+                        contentStream.newLine();
+                        contentStream.showText("Beschreibung: " + module.getDescription());
+                        contentStream.newLine();
+                        contentStream.newLine();
+                    }
+
+                    contentStream.endText();
+                }
+
+                String fileName = "Modulliste.pdf";
+                document.save(fileName);
+                JOptionPane.showMessageDialog(this, "PDF erfolgreich erstellt: " + fileName, "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+            } catch (Exception e) {
+                logger.error("Fehler beim Erstellen des PDFs", e);
+                JOptionPane.showMessageDialog(this, "Fehler beim Erstellen des PDFs: " + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
             }
         }
     }
@@ -916,11 +1228,28 @@ public class MainFrame extends JFrame {
                 return;
             }
             
-            // Hier würde die Druckfunktionalität implementiert werden
-            JOptionPane.showMessageDialog(this,
-                "Druckfunktion noch nicht implementiert.",
-                "Information",
-                JOptionPane.INFORMATION_MESSAGE);
+            printExamToPDF(generatedExam);
+        }
+
+        // Methode zum Drucken der Klausurvorschau
+        public void printPreview() {
+            try {
+                String content = previewArea.getText();
+                printToPDF(content, "Klausurvorschau.pdf");
+            } catch (Exception ex) {
+                logger.error("Error printing exam preview", ex);
+                JOptionPane.showMessageDialog(this, "Fehler beim Drucken der Klausurvorschau: " + ex.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        // Methode zum Drucken des Panels
+        public void printPanelContent() {
+            printPreview();
+        }
+
+        // In der Klasse ExamGeneratorPanel:
+        public void printPreviewContent() {
+            printPreview();
         }
     }
     
@@ -1100,11 +1429,7 @@ public class MainFrame extends JFrame {
         }
         
         private void printExam(Exam exam) {
-            // Hier würde die Druckfunktionalität implementiert werden
-            JOptionPane.showMessageDialog(this,
-                "Druckfunktion noch nicht implementiert.",
-                "Information",
-                JOptionPane.INFORMATION_MESSAGE);
+            printExamToPDF(exam);
         }
         
         private void exportExam(Exam exam) {
@@ -1113,6 +1438,134 @@ public class MainFrame extends JFrame {
                 "Exportfunktion noch nicht implementiert.",
                 "Information",
                 JOptionPane.INFORMATION_MESSAGE);
+        }
+
+        // Methode zum Drucken der Klausurvorschau
+        public void printPreview() {
+            try {
+                String content = previewArea.getText();
+                printToPDF(content, "Klausurvorschau.pdf");
+            } catch (Exception ex) {
+                logger.error("Error printing exam preview", ex);
+                JOptionPane.showMessageDialog(this, "Fehler beim Drucken der Klausurvorschau: " + ex.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        // Methode zum Drucken der ausgewählten Klausur
+        public void printSelectedExam() {
+            int selectedRow = examsTable.getSelectedRow();
+            if (selectedRow >= 0 && selectedRow < exams.size()) {
+                Exam exam = exams.get(selectedRow);
+                printExamToPDF(exam);
+            } else {
+                JOptionPane.showMessageDialog(this,
+                    "Bitte wählen Sie eine Klausur aus der Tabelle.",
+                    "Information",
+                    JOptionPane.INFORMATION_MESSAGE);
+            }
+        }
+
+        // Methode zum Drucken des Panels
+        public void printPanelContent() {
+            printPreview();
+        }
+
+        // In der Klasse ExamViewerPanel:
+        public void printPreviewContent() {
+            printPreview();
+        }
+    }
+    
+    // Add a method to print an exam to PDF
+    private void printExamToPDF(Exam exam) {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+
+            try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+                contentStream.setFont(PDType1Font.HELVETICA, 12);
+                contentStream.beginText();
+                contentStream.setLeading(14.5f);
+                contentStream.newLineAtOffset(50, 750);
+
+                contentStream.showText("KLAUSUR: " + exam.getName());
+                contentStream.newLine();
+                contentStream.showText("Modul: " + (exam.getModule() != null ? exam.getModule().getName() : "-"));
+                contentStream.newLine();
+                contentStream.showText("Datum: " + exam.getDateCreated());
+                contentStream.newLine();
+                contentStream.newLine();
+
+                int questionNumber = 1;
+                for (Question question : exam.getQuestions()) {
+                    contentStream.showText(questionNumber++ + ". " + question.getName());
+                    contentStream.newLine();
+                    contentStream.showText(question.getQuestionText());
+                    contentStream.newLine();
+                    contentStream.newLine();
+
+                    if (question.getQuestionFormat() == QuestionFormat.CLOSED) {
+                        for (AnswerOption option : question.getAnswerOptions()) {
+                            contentStream.showText("   - " + option.getOptionText());
+                            contentStream.newLine();
+                        }
+                    }
+
+                    contentStream.newLine();
+                }
+
+                contentStream.endText();
+            }
+
+            String fileName = "Klausur_" + exam.getName().replaceAll(" ", "_") + ".pdf";
+            document.save(fileName);
+            JOptionPane.showMessageDialog(this, "PDF erfolgreich erstellt: " + fileName, "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception e) {
+            logger.error("Fehler beim Erstellen des PDFs", e);
+            JOptionPane.showMessageDialog(this, "Fehler beim Erstellen des PDFs: " + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    // Neue Methode zum Drucken einer Frage in ein PDF
+    private void printQuestionToPDF(Question question) {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+
+            try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+                contentStream.setFont(PDType1Font.HELVETICA, 12);
+                contentStream.beginText();
+                contentStream.setLeading(14.5f);
+                contentStream.newLineAtOffset(50, 750);
+
+                contentStream.showText("AUFGABE: " + question.getName());
+                contentStream.newLine();
+                contentStream.showText("Fragetext: " + question.getQuestionText());
+                contentStream.newLine();
+                contentStream.showText("Bloom Level: " + question.getBloomLevel().getName());
+                contentStream.newLine();
+                contentStream.showText("Format: " + question.getQuestionFormat().getDisplayName());
+                contentStream.newLine();
+
+                if (question.getQuestionFormat() == QuestionFormat.CLOSED) {
+                    contentStream.newLine();
+                    contentStream.showText("Antwortoptionen:");
+                    contentStream.newLine();
+                    for (AnswerOption option : question.getAnswerOptions()) {
+                        contentStream.showText("   - " + option.getOptionText());
+                        contentStream.newLine();
+                    }
+                }
+
+                contentStream.endText();
+            }
+
+            String fileName = "Aufgabe_" + question.getName().replaceAll(" ", "_") + ".pdf";
+            document.save(fileName);
+            JOptionPane.showMessageDialog(this, "PDF erfolgreich erstellt: " + fileName, "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception e) {
+            logger.error("Fehler beim Erstellen des PDFs", e);
+            JOptionPane.showMessageDialog(this, "Fehler beim Erstellen des PDFs: " + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
         }
     }
 }

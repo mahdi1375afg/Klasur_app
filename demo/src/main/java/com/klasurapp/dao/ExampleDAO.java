@@ -8,7 +8,7 @@ import java.sql.SQLException;
 public class ExampleDAO {
     public void getAllRecords() {
         String query = "SELECT * FROM deine_tabelle";
-        try (Connection connection = DatabaseConnection.getConnection();
+        try (Connection connection = DatabaseConnection.getSharedConnection();
              PreparedStatement statement = connection.prepareStatement(query);
              ResultSet resultSet = statement.executeQuery()) {
 
